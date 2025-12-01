@@ -105,7 +105,7 @@ struct GeneralPreferencesView: View {
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Apps fill a fixed grid with specified dimensions.")
+                        Text("Apps fill a grid with specified dimensions.")
                             .font(.caption)
                             .foregroundColor(.secondary)
 

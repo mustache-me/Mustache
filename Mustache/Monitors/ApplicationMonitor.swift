@@ -93,27 +93,7 @@ class ApplicationMonitor: ObservableObject {
             tracked.append(trackedApp)
         }
 
-        for pinnedApp in pinnedApps where pinnedApp.alwaysShow {
-            if !tracked.contains(where: { $0.bundleIdentifier == pinnedApp.bundleIdentifier }) {
-                if let metadata = getCachedMetadata(for: pinnedApp.bundleIdentifier) {
-                    let appIcon = getCachedIcon(for: pinnedApp.bundleIdentifier, appURL: metadata.url)
-                    let trackedApp = TrackedApplication(
-                        id: 0,
-                        bundleIdentifier: pinnedApp.bundleIdentifier,
-                        name: pinnedApp.name,
-                        icon: appIcon,
-                        assignedNumber: nil,
-                        assignedKey: nil,
-                        isActive: false,
-                        windowFrame: nil,
-                        isRunning: false
-                    )
-                    tracked.append(trackedApp)
-                }
-            }
-        }
-
-        tracked = sortApplications(tracked)
+        tracked = sortAndTruncateApplications(tracked)
         tracked = assignShortcuts(to: tracked)
 
         trackedApplications = tracked
@@ -210,27 +190,7 @@ class ApplicationMonitor: ObservableObject {
             tracked.append(trackedApp)
         }
 
-        for pinnedApp in pinnedApps where pinnedApp.alwaysShow {
-            if !tracked.contains(where: { $0.bundleIdentifier == pinnedApp.bundleIdentifier }) {
-                if let metadata = getCachedMetadata(for: pinnedApp.bundleIdentifier) {
-                    let appIcon = getCachedIcon(for: pinnedApp.bundleIdentifier, appURL: metadata.url)
-                    let trackedApp = TrackedApplication(
-                        id: 0,
-                        bundleIdentifier: pinnedApp.bundleIdentifier,
-                        name: pinnedApp.name,
-                        icon: appIcon,
-                        assignedNumber: nil,
-                        assignedKey: nil,
-                        isActive: false,
-                        windowFrame: nil,
-                        isRunning: false
-                    )
-                    tracked.append(trackedApp)
-                }
-            }
-        }
-
-        tracked = sortApplications(tracked)
+        tracked = sortAndTruncateApplications(tracked)
         tracked = assignShortcuts(to: tracked)
 
         trackedApplications = tracked
@@ -320,31 +280,45 @@ class ApplicationMonitor: ObservableObject {
         trackedApplications.first { $0.assignedNumber == number }
     }
 
-    private func sortApplications(_ apps: [TrackedApplication]) -> [TrackedApplication] {
-        guard showPinnedAppsFirst else {
-            return apps
-        }
-
-        var pinnedAppsInOrder: [TrackedApplication] = []
-        var unpinnedApps: [TrackedApplication] = []
-
+    private func sortAndTruncateApplications(_ apps: [TrackedApplication]) -> [TrackedApplication] {
+        // Separate pinned and unpinned apps
+        let pinnedBundleIDs = Set(pinnedApps.map(\.bundleIdentifier))
         let pinnedAppIndices = Dictionary(uniqueKeysWithValues: pinnedApps.enumerated().map { ($0.element.bundleIdentifier, $0.offset) })
 
+        var pinnedAppsFound: [TrackedApplication] = []
+        var unpinnedApps: [TrackedApplication] = []
+
         for app in apps {
-            if pinnedAppIndices[app.bundleIdentifier] != nil {
-                pinnedAppsInOrder.append(app)
+            if pinnedBundleIDs.contains(app.bundleIdentifier) {
+                pinnedAppsFound.append(app)
             } else {
                 unpinnedApps.append(app)
             }
         }
 
-        pinnedAppsInOrder.sort { app1, app2 in
+        // Sort pinned apps by their order in pinnedApps array
+        pinnedAppsFound.sort { app1, app2 in
             let index1 = pinnedAppIndices[app1.bundleIdentifier] ?? Int.max
             let index2 = pinnedAppIndices[app2.bundleIdentifier] ?? Int.max
             return index1 < index2
         }
 
-        return pinnedAppsInOrder + unpinnedApps
+        // Unpinned apps maintain natural order (no sorting needed)
+
+        // Truncate: pinned apps take priority
+        let pinnedCount = pinnedAppsFound.count
+
+        if pinnedCount >= maxTrackedApplications {
+            // Only show first maxTrackedApplications pinned apps
+            let truncatedPinned = Array(pinnedAppsFound.prefix(maxTrackedApplications))
+            return showPinnedAppsFirst ? truncatedPinned : truncatedPinned
+        } else {
+            // Show all pinned apps + fill remaining slots with unpinned apps
+            let remainingSlots = maxTrackedApplications - pinnedCount
+            let truncatedUnpinned = Array(unpinnedApps.prefix(remainingSlots))
+
+            return showPinnedAppsFirst ? pinnedAppsFound + truncatedUnpinned : truncatedUnpinned + pinnedAppsFound
+        }
     }
 
     private func assignShortcuts(to apps: [TrackedApplication]) -> [TrackedApplication] {
@@ -370,10 +344,7 @@ class ApplicationMonitor: ObservableObject {
                     nextAvailableIndex += 1
                 }
 
-                let isPinnedAlwaysShow = pinnedApp?.alwaysShow == true
-                let shouldAssignShortcut = nextAvailableIndex < maxTrackedApplications || isPinnedAlwaysShow
-
-                if shouldAssignShortcut, nextAvailableIndex < 47 {
+                if nextAvailableIndex < maxTrackedApplications, nextAvailableIndex < 47 {
                     trackedApp.assignedNumber = nextAvailableIndex
                     trackedApp.assignedKey = TrackedApplication.shortcutKey(for: nextAvailableIndex)
                     occupiedIndices.insert(nextAvailableIndex)

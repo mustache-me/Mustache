@@ -12,17 +12,18 @@ struct AppSwitcherItem: View {
     let app: TrackedApplication
     let isHighlighted: Bool
     let badgeStyle: BadgeStyle
+    let iconSize: CGFloat
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Image(nsImage: app.icon)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .frame(width: iconSize, height: iconSize)
+                .clipShape(RoundedRectangle(cornerRadius: iconSize * 0.21875)) // 14/64 ratio
                 .shadow(color: Color.black.opacity(0.3), radius: 6, x: 0, y: 3)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14)
+                    RoundedRectangle(cornerRadius: iconSize * 0.21875)
                         .stroke(isHighlighted ? Color.white : Color.clear, lineWidth: 2.5)
                 )
                 .scaleEffect(isHighlighted ? 1.05 : 1.0)
@@ -37,7 +38,7 @@ struct AppSwitcherItem: View {
                 .offset(x: -3, y: -3)
             }
         }
-        .frame(width: 64, height: 64)
+        .frame(width: iconSize, height: iconSize)
         .contentShape(Rectangle())
     }
 }
@@ -48,15 +49,19 @@ struct AppSwitcherOverlay: View {
     let badgeStyle: BadgeStyle
     let itemsPerRow: Int
     let rowCount: Int
+    let iconSize: CGFloat
+    let maxAppsToShow: Int
 
     var body: some View {
         let appsWithNumbers = applications.filter { $0.assignedNumber != nil }
+        let appsToDisplay = Array(appsWithNumbers.prefix(maxAppsToShow))
 
         if rowCount == 1 {
             HStack(spacing: 12) {
-                ForEach(appsWithNumbers, id: \.bundleIdentifier) { app in
+                // In single row mode, show up to itemsPerRow apps
+                ForEach(appsToDisplay, id: \.bundleIdentifier) { app in
                     let isHighlighted = app.assignedNumber == highlightedNumber
-                    AppSwitcherItem(app: app, isHighlighted: isHighlighted, badgeStyle: badgeStyle)
+                    AppSwitcherItem(app: app, isHighlighted: isHighlighted, badgeStyle: badgeStyle, iconSize: iconSize)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -65,14 +70,14 @@ struct AppSwitcherOverlay: View {
             VStack(spacing: 12) {
                 ForEach(0 ..< rowCount, id: \.self) { rowIndex in
                     let startIndex = rowIndex * itemsPerRow
-                    if startIndex < appsWithNumbers.count {
-                        let endIndex = min(startIndex + itemsPerRow, appsWithNumbers.count)
-                        let rowApps = Array(appsWithNumbers[startIndex ..< endIndex])
+                    if startIndex < appsToDisplay.count {
+                        let endIndex = min(startIndex + itemsPerRow, appsToDisplay.count)
+                        let rowApps = Array(appsToDisplay[startIndex ..< endIndex])
 
                         HStack(spacing: 12) {
                             ForEach(rowApps, id: \.bundleIdentifier) { app in
                                 let isHighlighted = app.assignedNumber == highlightedNumber
-                                AppSwitcherItem(app: app, isHighlighted: isHighlighted, badgeStyle: badgeStyle)
+                                AppSwitcherItem(app: app, isHighlighted: isHighlighted, badgeStyle: badgeStyle, iconSize: iconSize)
                             }
                         }
                     }
@@ -132,7 +137,7 @@ class AppSwitcherWindow: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    func updateContent(applications: [TrackedApplication], highlightedNumber: Int? = nil, badgeStyle: BadgeStyle? = nil, layoutMode: LayoutMode = .dynamic, gridRows: Int = 2, gridColumns: Int = 5) {
+    func updateContent(applications: [TrackedApplication], highlightedNumber: Int? = nil, badgeStyle: BadgeStyle? = nil, layoutMode: LayoutMode = .dynamic, gridRows: Int = 2, gridColumns: Int = 5, maxTrackedApplications: Int = 10) {
         if let newStyle = badgeStyle {
             self.badgeStyle = newStyle
         }
@@ -144,39 +149,70 @@ class AppSwitcherWindow: NSPanel {
         let screenWidth = screen.frame.width
 
         let padding: CGFloat = 20
-        let iconWidth: CGFloat = 64
+        let baseIconSize: CGFloat = 64
         let spacing: CGFloat = 12
 
         let itemsPerRow: Int
         let rowCount: Int
         let iconsInWidestRow: Int
 
+        let maxAppsToShow: Int
+
         switch layoutMode {
         case .grid:
+            // In grid mode, the grid dimensions define the maximum apps to show
+            let maxAppsInGrid = gridRows * gridColumns
+            maxAppsToShow = min(appCount, maxAppsInGrid)
+
             itemsPerRow = gridColumns
-            let actualRowsNeeded = (appCount + gridColumns - 1) / gridColumns
+            let actualRowsNeeded = (maxAppsToShow + gridColumns - 1) / gridColumns
             rowCount = min(gridRows, actualRowsNeeded)
 
-            let remainder = appCount % gridColumns
-            if remainder > 0, actualRowsNeeded <= gridRows {
-                iconsInWidestRow = gridColumns
+            // Calculate the widest row based on actual app distribution
+            if rowCount == 1 {
+                // Single row: show up to itemsPerRow (gridColumns) apps
+                iconsInWidestRow = min(maxAppsToShow, itemsPerRow)
             } else {
-                iconsInWidestRow = gridColumns
+                // Multiple rows: widest row has gridColumns (except possibly the last row)
+                let appsInLastRow = maxAppsToShow % gridColumns
+                if appsInLastRow == 0 {
+                    iconsInWidestRow = gridColumns
+                } else {
+                    // Last row might have fewer apps, but we size for gridColumns for consistency
+                    iconsInWidestRow = gridColumns
+                }
             }
 
         case .dynamic:
-            let maxWindowWidth = screenWidth * 0.8
-            let maxFitInOneRow = max(1, Int((maxWindowWidth - 2 * padding + spacing) / (iconWidth + spacing)))
+            // In dynamic mode, respect maxTrackedApplications
+            maxAppsToShow = min(appCount, maxTrackedApplications)
 
-            if appCount <= maxFitInOneRow {
-                itemsPerRow = appCount
+            let maxWindowWidth = screenWidth * 0.8
+            let maxFitInOneRow = max(1, Int((maxWindowWidth - 2 * padding + spacing) / (baseIconSize + spacing)))
+
+            if maxAppsToShow <= maxFitInOneRow {
+                itemsPerRow = maxAppsToShow
                 rowCount = 1
-                iconsInWidestRow = appCount
+                iconsInWidestRow = maxAppsToShow
             } else {
-                rowCount = (appCount + maxFitInOneRow - 1) / maxFitInOneRow
-                itemsPerRow = (appCount + rowCount - 1) / rowCount
+                rowCount = (maxAppsToShow + maxFitInOneRow - 1) / maxFitInOneRow
+                itemsPerRow = (maxAppsToShow + rowCount - 1) / rowCount
                 iconsInWidestRow = itemsPerRow
             }
+        }
+
+        // Calculate icon size - reduce if needed to fit all icons
+        let maxAvailableWidth = screenWidth * 0.9 - (2 * padding)
+        let requiredWidthAtBaseSize = CGFloat(iconsInWidestRow) * baseIconSize + CGFloat(max(0, iconsInWidestRow - 1)) * spacing
+
+        let iconSize: CGFloat
+        if requiredWidthAtBaseSize > maxAvailableWidth {
+            // Calculate smaller icon size to fit
+            let minIconSize: CGFloat = 32 // Minimum icon size
+            let calculatedSize = (maxAvailableWidth - CGFloat(max(0, iconsInWidestRow - 1)) * spacing) / CGFloat(iconsInWidestRow)
+            iconSize = max(minIconSize, calculatedSize)
+        } else {
+            iconSize = baseIconSize
         }
 
         let overlayView = AppSwitcherOverlay(
@@ -184,7 +220,9 @@ class AppSwitcherWindow: NSPanel {
             highlightedNumber: highlightedNumber,
             badgeStyle: self.badgeStyle,
             itemsPerRow: itemsPerRow,
-            rowCount: rowCount
+            rowCount: rowCount,
+            iconSize: iconSize,
+            maxAppsToShow: maxAppsToShow
         )
 
         if let existingController = hostingController as? NSHostingController<AppSwitcherOverlay> {
@@ -198,11 +236,11 @@ class AppSwitcherWindow: NSPanel {
             hostingController = controller as NSViewController
         }
 
-        let contentWidth = CGFloat(iconsInWidestRow * 64 + max(0, iconsInWidestRow - 1) * 12)
+        let contentWidth = CGFloat(iconsInWidestRow) * iconSize + CGFloat(max(0, iconsInWidestRow - 1)) * spacing
         let windowWidth = contentWidth + (padding * 2)
 
-        let contentHeight = CGFloat(rowCount * 64 + max(0, rowCount - 1) * 12)
-        let windowHeight = contentHeight + 26
+        let contentHeight = CGFloat(rowCount) * iconSize + CGFloat(max(0, rowCount - 1)) * spacing
+        let windowHeight = contentHeight + (padding * 2)
 
         var newFrame = frame
         newFrame.size = NSSize(width: windowWidth, height: windowHeight)

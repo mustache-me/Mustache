@@ -26,7 +26,7 @@ A fast, keyboard-driven app switcher for macOS that assigns keyboard shortcuts t
 
 ### Basic App Switching
 
-1. Press your configured hotkey (default: `⌘ + Space` or custom) to show the app switcher overlay
+1. Press your configured hotkey (default: `⌥ + Tab`) to show the app switcher overlay
 2. While holding the modifier key, press the number/letter shown on an app to switch to it
 3. Release the modifier key to hide the overlay
 
@@ -37,7 +37,7 @@ Pin your favorite apps to ensure they always have the same shortcut:
 1. Open Mustache preferences
 2. Go to the Applications tab
 3. Add apps to your pinned list and assign custom shortcuts
-4. Enable "Always Show" to display pinned apps even when not running
+4. Pinned apps are prioritized and will always appear when there are available slots
 
 ## Configuration
 
@@ -57,7 +57,8 @@ Pin your favorite apps to ensure they always have the same shortcut:
 - Pin frequently-used applications
 - Assign custom keyboard shortcuts
 - Exclude specific applications from tracking
-- Configure whether pinned apps appear first
+- Configure whether pinned apps appear at the front or back of the list
+- Pinned apps always take priority in filling available slots
 
 ### Layout & Size
 
@@ -78,7 +79,7 @@ Track your app switching behavior:
 
 ## Requirements
 
-- macOS 12.0 or later
+- macOS 15.0 or later
 - Accessibility permissions (required for keyboard monitoring)
 
 ## Permissions
@@ -107,10 +108,6 @@ Mustache/
 ### Building
 
 ```bash
-# Build from command line
-./b.sh
-
-# Or open in Xcode
 open Mustache.xcodeproj
 ```
 

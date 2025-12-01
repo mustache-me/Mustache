@@ -26,14 +26,9 @@ struct ApplicationsPreferencesView: View {
             Section(header: HStack {
                 Text("Pinned Applications (\(preferencesManager.preferences.pinnedApps.count))")
                 Spacer()
-                Button(action: { showingAddPinnedApp = true }) {
-                    Image(systemName: "plus.circle.fill")
-                }
-                .buttonStyle(.borderless)
-                .help("Add pinned application")
-            }) {
-                // Show pinned apps first toggle
-                Toggle("Show pinned apps first", isOn: Binding(
+
+                // Front/Back radio buttons
+                Picker("", selection: Binding(
                     get: {
                         MainActor.assumeIsolated {
                             preferencesManager.preferences.showPinnedAppsFirst
@@ -46,10 +41,20 @@ struct ApplicationsPreferencesView: View {
                             NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
                         }
                     }
-                ))
-                .help("When enabled, pinned apps appear first in the order below")
-                .padding(.bottom, 8)
+                )) {
+                    Text("Front").tag(true)
+                    Text("Back").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 120)
+                .help("Position pinned apps at the front or back of the list")
 
+                Button(action: { showingAddPinnedApp = true }) {
+                    Image(systemName: "plus.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                .help("Add pinned application")
+            }) {
                 if preferencesManager.preferences.pinnedApps.isEmpty {
                     Text("No pinned applications. Click + to add one.")
                         .font(.caption)
@@ -63,8 +68,6 @@ struct ApplicationsPreferencesView: View {
                             .frame(width: 120, alignment: .leading)
                         Text("Shortcut")
                             .frame(width: 80, alignment: .leading)
-                        Text("Always show")
-                            .frame(width: 90, alignment: .leading)
                         Spacer()
                         Text("Unpin")
                             .frame(width: 40, alignment: .center)
@@ -221,22 +224,6 @@ struct PinnedAppRow: View {
             }
             .frame(width: 80)
 
-            // Always show toggle
-            Toggle("", isOn: Binding(
-                get: {
-                    MainActor.assumeIsolated {
-                        pinnedApp.alwaysShow
-                    }
-                },
-                set: { newValue in
-                    Task { @MainActor in
-                        updatePinnedApp(alwaysShow: newValue)
-                    }
-                }
-            ))
-            .help("Always show in overlay")
-            .frame(width: 90)
-
             Spacer()
 
             // Unpin button
@@ -257,7 +244,7 @@ struct PinnedAppRow: View {
         }
     }
 
-    private func updatePinnedApp(shortcut: String? = nil, alwaysShow: Bool? = nil) {
+    private func updatePinnedApp(shortcut: String? = nil) {
         if let index = preferencesManager.preferences.pinnedApps.firstIndex(where: { $0.id == pinnedApp.id }) {
             var updated = preferencesManager.preferences.pinnedApps[index]
 
@@ -269,9 +256,6 @@ struct PinnedAppRow: View {
 
             if let shortcut {
                 updated.customShortcut = shortcut
-            }
-            if let alwaysShow {
-                updated.alwaysShow = alwaysShow
             }
             preferencesManager.preferences.pinnedApps[index] = updated
             preferencesManager.savePreferences()
@@ -332,8 +316,7 @@ struct AvailableAppRow: View {
                 bundleIdentifier: app.bundleIdentifier,
                 name: app.name,
                 iconPath: iconPath,
-                customShortcut: nil,
-                alwaysShow: false
+                customShortcut: nil
             )
             preferencesManager.preferences.pinnedApps.append(pinnedApp)
         }
@@ -460,8 +443,7 @@ struct AppListView: View {
             bundleIdentifier: app.bundleIdentifier,
             name: app.name,
             iconPath: iconPath,
-            customShortcut: nil,
-            alwaysShow: false
+            customShortcut: nil
         )
         preferencesManager.preferences.pinnedApps.append(pinnedApp)
         preferencesManager.savePreferences()
@@ -502,8 +484,7 @@ struct BrowseAppsView: View {
                     bundleIdentifier: bundleID,
                     name: appName,
                     iconPath: url.path,
-                    customShortcut: nil,
-                    alwaysShow: false
+                    customShortcut: nil
                 )
                 preferencesManager.preferences.pinnedApps.append(pinnedApp)
                 preferencesManager.savePreferences()

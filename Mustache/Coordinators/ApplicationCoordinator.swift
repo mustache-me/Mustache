@@ -64,7 +64,8 @@ class ApplicationCoordinator: ObservableObject {
                             badgeStyle: newStyle,
                             layoutMode: self.preferencesManager.preferences.layoutMode,
                             gridRows: self.preferencesManager.preferences.gridRows,
-                            gridColumns: self.preferencesManager.preferences.gridColumns
+                            gridColumns: self.preferencesManager.preferences.gridColumns,
+                            maxTrackedApplications: self.preferencesManager.preferences.maxTrackedApplications
                         )
                     }
                 }
@@ -418,7 +419,8 @@ class ApplicationCoordinator: ObservableObject {
             badgeStyle: preferencesManager.preferences.badgeStyle,
             layoutMode: preferencesManager.preferences.layoutMode,
             gridRows: preferencesManager.preferences.gridRows,
-            gridColumns: preferencesManager.preferences.gridColumns
+            gridColumns: preferencesManager.preferences.gridColumns,
+            maxTrackedApplications: preferencesManager.preferences.maxTrackedApplications
         )
 
         appSwitcherWindow?.orderFrontRegardless()
@@ -442,7 +444,8 @@ class ApplicationCoordinator: ObservableObject {
                 badgeStyle: preferencesManager.preferences.badgeStyle,
                 layoutMode: preferencesManager.preferences.layoutMode,
                 gridRows: preferencesManager.preferences.gridRows,
-                gridColumns: preferencesManager.preferences.gridColumns
+                gridColumns: preferencesManager.preferences.gridColumns,
+                maxTrackedApplications: preferencesManager.preferences.maxTrackedApplications
             )
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
@@ -456,7 +459,11 @@ class ApplicationCoordinator: ObservableObject {
             appSwitcherWindow?.updateContent(
                 applications: applicationMonitor.trackedApplications,
                 highlightedNumber: index,
-                badgeStyle: preferencesManager.preferences.badgeStyle
+                badgeStyle: preferencesManager.preferences.badgeStyle,
+                layoutMode: preferencesManager.preferences.layoutMode,
+                gridRows: preferencesManager.preferences.gridRows,
+                gridColumns: preferencesManager.preferences.gridColumns,
+                maxTrackedApplications: preferencesManager.preferences.maxTrackedApplications
             )
 
             appSwitcherWindow?.orderFrontRegardless()
@@ -637,7 +644,8 @@ class ApplicationCoordinator: ObservableObject {
                 badgeStyle: style,
                 layoutMode: preferencesManager.preferences.layoutMode,
                 gridRows: preferencesManager.preferences.gridRows,
-                gridColumns: preferencesManager.preferences.gridColumns
+                gridColumns: preferencesManager.preferences.gridColumns,
+                maxTrackedApplications: preferencesManager.preferences.maxTrackedApplications
             )
         }
 

@@ -7,7 +7,7 @@ enum ApplicationSourceMode: String, Codable, CaseIterable {
 
 enum LayoutMode: String, Codable, CaseIterable {
     case dynamic = "Dynamic (Width-Based)"
-    case grid = "Fixed Grid"
+    case grid = "Grid"
 }
 
 struct PinnedApp: Codable, Equatable, Identifiable {
@@ -16,7 +16,6 @@ struct PinnedApp: Codable, Equatable, Identifiable {
     let name: String
     let iconPath: String?
     var customShortcut: String?
-    var alwaysShow: Bool
 
     var shortcutIndex: Int? {
         guard let shortcut = customShortcut else { return nil }

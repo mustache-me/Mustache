@@ -95,3 +95,4 @@ iOSInjectionProject/
 .DS_Store
 
 .kiro/*
+.vscode/*
