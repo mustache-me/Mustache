@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: swiftformat
+        name: Format Swift code
+        entry: swiftformat . --swiftversion 5.9
+        language: system
+        files: \.swift$
