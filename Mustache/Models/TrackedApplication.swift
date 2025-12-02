@@ -13,7 +13,7 @@ struct TrackedApplication: Identifiable, Equatable {
     let id: pid_t // Process ID (0 for non-running apps)
     let bundleIdentifier: String // e.g., "com.apple.Safari"
     let name: String // Display name
-    let icon: NSImage // App icon
+    var icon: NSImage // App icon
     var assignedNumber: Int? // 0-9, nil if not assigned
     var assignedKey: String? // Display key: "1"-"9", "0", "a"-"z"
     var isActive: Bool // Currently frontmost

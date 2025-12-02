@@ -8,7 +8,7 @@
 import Foundation
 
 /// Tracks Accessibility API permission state
-enum PermissionStatus {
+enum PermissionStatus: String {
     case notDetermined
     case granted
     case denied

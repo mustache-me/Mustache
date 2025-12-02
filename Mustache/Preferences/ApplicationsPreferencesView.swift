@@ -14,14 +14,203 @@ struct ApplicationsPreferencesView: View {
     @ObservedObject var applicationMonitor: ApplicationMonitor
     @State private var showingAddPinnedApp = false
     @StateObject private var dragState = DragState()
+    @State private var availableApplications: [TrackedApplication] = []
+    @State private var isLoadingAvailableApps = false
 
-    /// Show all tracked applications
-    var availableApplications: [TrackedApplication] {
-        applicationMonitor.trackedApplications
+    private func loadAvailableApplications() {
+        isLoadingAvailableApps = true
+        Task {
+            let apps = await loadApplicationsAsync()
+            await MainActor.run {
+                availableApplications = apps
+                isLoadingAvailableApps = false
+            }
+        }
+    }
+
+    private func loadApplicationsAsync() async -> [TrackedApplication] {
+        // Get apps in their natural order based on the current mode
+        if preferencesManager.preferences.applicationSourceMode == .dock {
+            await getDockApplicationsInOrderAsync()
+        } else {
+            await getRunningApplicationsInOrderAsync()
+        }
+    }
+
+    private func getDockApplicationsInOrderAsync() async -> [TrackedApplication] {
+        await Task.detached {
+            await MainActor.run {
+                getDockApplicationsInOrder()
+            }
+        }.value
+    }
+
+    private func getRunningApplicationsInOrderAsync() async -> [TrackedApplication] {
+        await Task.detached {
+            await MainActor.run {
+                getRunningApplicationsInOrder()
+            }
+        }.value
+    }
+
+    private func getDockApplicationsInOrder() -> [TrackedApplication] {
+        var apps: [TrackedApplication] = []
+        var processedBundleIDs = Set<String>()
+
+        // Add Finder first
+        let finderBundleID = "com.apple.finder"
+        if let finderApp = NSRunningApplication.runningApplications(withBundleIdentifier: finderBundleID).first,
+           !finderApp.isTerminated
+        {
+            processedBundleIDs.insert(finderBundleID)
+            let trackedApp = TrackedApplication(
+                id: finderApp.processIdentifier,
+                bundleIdentifier: finderBundleID,
+                name: finderApp.localizedName ?? "Finder",
+                icon: finderApp.icon ?? NSImage(),
+                assignedNumber: nil,
+                assignedKey: nil,
+                isActive: false,
+                windowFrame: nil,
+                isRunning: true
+            )
+            apps.append(trackedApp)
+        }
+
+        // Get dock apps from system preferences
+        guard let dockPlist = UserDefaults.standard.persistentDomain(forName: "com.apple.dock"),
+              let persistentApps = dockPlist["persistent-apps"] as? [[String: Any]]
+        else {
+            return apps
+        }
+
+        for app in persistentApps {
+            if let tileData = app["tile-data"] as? [String: Any],
+               let bundleID = tileData["bundle-identifier"] as? String,
+               !processedBundleIDs.contains(bundleID)
+            {
+                processedBundleIDs.insert(bundleID)
+
+                // Check if app is running
+                if let runningApp = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first,
+                   !runningApp.isTerminated
+                {
+                    let trackedApp = TrackedApplication(
+                        id: runningApp.processIdentifier,
+                        bundleIdentifier: bundleID,
+                        name: runningApp.localizedName ?? "Unknown",
+                        icon: runningApp.icon ?? NSImage(),
+                        assignedNumber: nil,
+                        assignedKey: nil,
+                        isActive: false,
+                        windowFrame: nil,
+                        isRunning: true
+                    )
+                    apps.append(trackedApp)
+                } else {
+                    // App is not running, get metadata
+                    if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                        let appName = FileManager.default.displayName(atPath: appURL.path)
+                        let appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
+                        let trackedApp = TrackedApplication(
+                            id: 0,
+                            bundleIdentifier: bundleID,
+                            name: appName,
+                            icon: appIcon,
+                            assignedNumber: nil,
+                            assignedKey: nil,
+                            isActive: false,
+                            windowFrame: nil,
+                            isRunning: false
+                        )
+                        apps.append(trackedApp)
+                    }
+                }
+            }
+        }
+
+        // Add running apps not in dock
+        let runningApps = NSWorkspace.shared.runningApplications
+        let filteredRunningApps = runningApps.filter { app in
+            guard app.activationPolicy == .regular else { return false }
+            guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
+            guard !app.isTerminated else { return false }
+            guard let bundleID = app.bundleIdentifier else { return false }
+            return !processedBundleIDs.contains(bundleID)
+        }
+
+        for app in filteredRunningApps {
+            let trackedApp = TrackedApplication(
+                id: app.processIdentifier,
+                bundleIdentifier: app.bundleIdentifier ?? "",
+                name: app.localizedName ?? "Unknown",
+                icon: app.icon ?? NSImage(),
+                assignedNumber: nil,
+                assignedKey: nil,
+                isActive: false,
+                windowFrame: nil,
+                isRunning: true
+            )
+            apps.append(trackedApp)
+        }
+
+        return apps
+    }
+
+    private func getRunningApplicationsInOrder() -> [TrackedApplication] {
+        let runningApps = NSWorkspace.shared.runningApplications
+
+        return runningApps
+            .filter { app in
+                guard app.activationPolicy == .regular else { return false }
+                guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
+                guard !app.isTerminated else { return false }
+                return true
+            }
+            .map { app in
+                TrackedApplication(
+                    id: app.processIdentifier,
+                    bundleIdentifier: app.bundleIdentifier ?? "unknown",
+                    name: app.localizedName ?? "Unknown",
+                    icon: app.icon ?? NSImage(),
+                    assignedNumber: nil,
+                    assignedKey: nil,
+                    isActive: app.isActive,
+                    windowFrame: nil,
+                    isRunning: true
+                )
+            }
     }
 
     var body: some View {
         Form {
+            // Application Source Section
+            Section(header: Text("Application Source")) {
+                Picker("Mode:", selection: Binding(
+                    get: { preferencesManager.preferences.applicationSourceMode },
+                    set: { newValue in
+                        preferencesManager.preferences.applicationSourceMode = newValue
+                        preferencesManager.savePreferences()
+                        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
+                    }
+                )) {
+                    ForEach(ApplicationSourceMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+
+                if preferencesManager.preferences.applicationSourceMode == .runningApplications {
+                    Text("Track all running applications with visible windows.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Track applications from your Dock.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
             // Pinned Applications Section
             Section(header: HStack {
                 Text("Pinned Applications (\(preferencesManager.preferences.pinnedApps.count))")
@@ -110,14 +299,23 @@ struct ApplicationsPreferencesView: View {
             Section(header: HStack {
                 Text("Available Applications (\(availableApplications.count))")
                 Spacer()
+
+                if isLoadingAvailableApps || applicationMonitor.isLoadingApplications {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .frame(width: 16, height: 16)
+                }
+
                 Button(action: {
                     applicationMonitor.clearCaches()
                     applicationMonitor.refreshApplicationList()
+                    loadAvailableApplications()
                 }) {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
                 .help("Refresh application list (clears cache)")
+                .disabled(isLoadingAvailableApps || applicationMonitor.isLoadingApplications)
             }) {
                 Text("Applications from \(preferencesManager.preferences.applicationSourceMode.rawValue) mode")
                     .font(.caption)
@@ -154,10 +352,21 @@ struct ApplicationsPreferencesView: View {
                                     .padding(.horizontal, 8)
                             }
                         }
+
+                        if isLoadingAvailableApps || applicationMonitor.isLoadingApplications, availableApplications.isEmpty {
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                Text("Loading applications...")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 40)
+                        }
                     }
                     .padding(.trailing, 8)
                 }
-                .frame(height: 250)
+                .frame(height: 180)
             }
         }
         .frame(minWidth: 600)
@@ -173,6 +382,10 @@ struct ApplicationsPreferencesView: View {
         .onAppear {
             // Refresh app list when user opens this view
             applicationMonitor.refreshApplicationList()
+            loadAvailableApplications()
+        }
+        .onChange(of: preferencesManager.preferences.applicationSourceMode) { _, _ in
+            loadAvailableApplications()
         }
     }
 }
@@ -333,6 +546,9 @@ struct AddPinnedAppSheet: View {
     @Binding var isPresented: Bool
     @State private var selectedTab = 0
     @State private var searchText = ""
+    @State private var cachedRunningApps: [TrackedApplication] = []
+    @State private var cachedDockApps: [TrackedApplication] = []
+    @State private var isLoadingApps = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -356,10 +572,12 @@ struct AddPinnedAppSheet: View {
             .pickerStyle(.segmented)
             .padding(.horizontal)
 
-            // Search field
-            TextField("Search applications...", text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .padding()
+            // Search field - only show for Running and Dock tabs
+            if selectedTab != 2 {
+                TextField("Search applications...", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .padding()
+            }
 
             // Content
             if selectedTab == 2 {
@@ -367,45 +585,169 @@ struct AddPinnedAppSheet: View {
                     preferencesManager: preferencesManager,
                     isPresented: $isPresented
                 )
+                .padding(50)
+                Spacer()
             } else {
-                AppListView(
-                    apps: filteredApps,
-                    preferencesManager: preferencesManager,
-                    isPresented: $isPresented
-                )
+                if isLoadingApps, filteredApps.isEmpty {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                        Text("Loading applications...")
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    AppListView(
+                        apps: filteredApps,
+                        preferencesManager: preferencesManager,
+                        isPresented: $isPresented
+                    )
+                }
             }
         }
         .frame(width: 500, height: 400)
+        .onAppear {
+            loadAppsForCurrentTab()
+        }
+        .onChange(of: selectedTab) { _, _ in
+            loadAppsForCurrentTab()
+        }
     }
 
     private var filteredApps: [TrackedApplication] {
-        let apps = selectedTab == 0 ? runningApps : dockApps
+        let apps = selectedTab == 0 ? cachedRunningApps : cachedDockApps
         if searchText.isEmpty {
             return apps
         }
         return apps.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
-    private var runningApps: [TrackedApplication] {
-        NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular }
-            .map { app in
-                TrackedApplication(
-                    id: app.processIdentifier,
-                    bundleIdentifier: app.bundleIdentifier ?? "",
-                    name: app.localizedName ?? "Unknown",
-                    icon: app.icon ?? NSImage(),
-                    assignedNumber: nil,
-                    assignedKey: nil,
-                    isActive: false,
-                    windowFrame: nil,
-                    isRunning: true
-                )
+    private func loadAppsForCurrentTab() {
+        isLoadingApps = true
+        Task {
+            if selectedTab == 0 {
+                let apps = await loadRunningAppsAsync()
+                await MainActor.run {
+                    cachedRunningApps = apps
+                    isLoadingApps = false
+                }
+            } else {
+                let apps = await loadDockAppsAsync()
+                await MainActor.run {
+                    cachedDockApps = apps
+                    isLoadingApps = false
+                }
             }
+        }
     }
 
-    private var dockApps: [TrackedApplication] {
-        applicationMonitor.trackedApplications
+    private func loadRunningAppsAsync() async -> [TrackedApplication] {
+        await Task.detached {
+            await MainActor.run {
+                NSWorkspace.shared.runningApplications
+                    .filter { $0.activationPolicy == .regular }
+                    .map { app in
+                        TrackedApplication(
+                            id: app.processIdentifier,
+                            bundleIdentifier: app.bundleIdentifier ?? "",
+                            name: app.localizedName ?? "Unknown",
+                            icon: app.icon ?? NSImage(),
+                            assignedNumber: nil,
+                            assignedKey: nil,
+                            isActive: false,
+                            windowFrame: nil,
+                            isRunning: true
+                        )
+                    }
+            }
+        }.value
+    }
+
+    private func loadDockAppsAsync() async -> [TrackedApplication] {
+        await Task.detached {
+            await MainActor.run {
+                loadDockApps()
+            }
+        }.value
+    }
+
+    private func loadDockApps() -> [TrackedApplication] {
+        // Get dock apps directly, regardless of current application source mode
+        var apps: [TrackedApplication] = []
+        var processedBundleIDs = Set<String>()
+
+        // Add Finder first
+        let finderBundleID = "com.apple.finder"
+        if let finderApp = NSRunningApplication.runningApplications(withBundleIdentifier: finderBundleID).first,
+           !finderApp.isTerminated
+        {
+            processedBundleIDs.insert(finderBundleID)
+            let trackedApp = TrackedApplication(
+                id: finderApp.processIdentifier,
+                bundleIdentifier: finderBundleID,
+                name: finderApp.localizedName ?? "Finder",
+                icon: finderApp.icon ?? NSImage(),
+                assignedNumber: nil,
+                assignedKey: nil,
+                isActive: false,
+                windowFrame: nil,
+                isRunning: true
+            )
+            apps.append(trackedApp)
+        }
+
+        // Get dock apps from system preferences
+        guard let dockPlist = UserDefaults.standard.persistentDomain(forName: "com.apple.dock"),
+              let persistentApps = dockPlist["persistent-apps"] as? [[String: Any]]
+        else {
+            return apps
+        }
+
+        for app in persistentApps {
+            if let tileData = app["tile-data"] as? [String: Any],
+               let bundleID = tileData["bundle-identifier"] as? String,
+               !processedBundleIDs.contains(bundleID)
+            {
+                processedBundleIDs.insert(bundleID)
+
+                // Check if app is running
+                if let runningApp = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first,
+                   !runningApp.isTerminated
+                {
+                    let trackedApp = TrackedApplication(
+                        id: runningApp.processIdentifier,
+                        bundleIdentifier: bundleID,
+                        name: runningApp.localizedName ?? "Unknown",
+                        icon: runningApp.icon ?? NSImage(),
+                        assignedNumber: nil,
+                        assignedKey: nil,
+                        isActive: false,
+                        windowFrame: nil,
+                        isRunning: true
+                    )
+                    apps.append(trackedApp)
+                } else {
+                    // App is not running, get metadata
+                    if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                        let appName = FileManager.default.displayName(atPath: appURL.path)
+                        let appIcon = NSWorkspace.shared.icon(forFile: appURL.path)
+                        let trackedApp = TrackedApplication(
+                            id: 0,
+                            bundleIdentifier: bundleID,
+                            name: appName,
+                            icon: appIcon,
+                            assignedNumber: nil,
+                            assignedKey: nil,
+                            isActive: false,
+                            windowFrame: nil,
+                            isRunning: false
+                        )
+                        apps.append(trackedApp)
+                    }
+                }
+            }
+        }
+
+        return apps
     }
 }
 
@@ -457,23 +799,57 @@ struct BrowseAppsView: View {
     @Binding var isPresented: Bool
 
     var body: some View {
-        VStack {
-            Text("Click to browse for an application")
-                .foregroundColor(.secondary)
+        VStack(spacing: 20) {
+//            Spacer()
 
-            Button("Browse...") {
-                browseForApp()
+            Button(action: { browseForApp() }) {
+                HStack {
+                    Image(systemName: "folder")
+                    Text("Browse...")
+                }
+                .frame(minWidth: 100)
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    QuickAccessButton(icon: "folder", title: "Applications") {
+                        browseForApp(startingAt: "/Applications")
+                    }
+                    QuickAccessButton(icon: "wrench.and.screwdriver", title: "Utilities") {
+                        browseForApp(startingAt: "/Applications/Utilities")
+                    }
+                    QuickAccessButton(icon: "house", title: "Home") {
+                        browseForApp(startingAt: NSHomeDirectory())
+                    }
+                }
+                HStack(spacing: 8) {
+                    QuickAccessButton(icon: "desktopcomputer", title: "Desktop") {
+                        browseForApp(startingAt: NSHomeDirectory() + "/Desktop")
+                    }
+                    QuickAccessButton(icon: "doc", title: "Documents") {
+                        browseForApp(startingAt: NSHomeDirectory() + "/Documents")
+                    }
+                    QuickAccessButton(icon: "arrow.down.circle", title: "Downloads") {
+                        browseForApp(startingAt: NSHomeDirectory() + "/Downloads")
+                    }
+                }
+            }
+
+            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func browseForApp() {
+    private func browseForApp(startingAt path: String = "/Applications") {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.application]
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.directoryURL = URL(fileURLWithPath: path)
+        panel.message = "Select an application to pin"
 
         if panel.runModal() == .OK, let url = panel.url {
             if let bundle = Bundle(url: url),
@@ -492,6 +868,27 @@ struct BrowseAppsView: View {
                 isPresented = false
             }
         }
+    }
+}
+
+// MARK: - Quick Access Button
+
+struct QuickAccessButton: View {
+    let icon: String
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                Text(title)
+                    .font(.caption)
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
     }
 }
 

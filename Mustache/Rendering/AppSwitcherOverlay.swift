@@ -57,7 +57,7 @@ struct AppSwitcherOverlay: View {
         let appsToDisplay = Array(appsWithNumbers.prefix(maxAppsToShow))
 
         if rowCount == 1 {
-            HStack(spacing: 12) {
+            HStack(spacing: badgeStyle.iconSpacing) {
                 // In single row mode, show up to itemsPerRow apps
                 ForEach(appsToDisplay, id: \.bundleIdentifier) { app in
                     let isHighlighted = app.assignedNumber == highlightedNumber
@@ -67,14 +67,14 @@ struct AppSwitcherOverlay: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea(.all)
         } else {
-            VStack(spacing: 12) {
+            VStack(spacing: badgeStyle.iconSpacing) {
                 ForEach(0 ..< rowCount, id: \.self) { rowIndex in
                     let startIndex = rowIndex * itemsPerRow
                     if startIndex < appsToDisplay.count {
                         let endIndex = min(startIndex + itemsPerRow, appsToDisplay.count)
                         let rowApps = Array(appsToDisplay[startIndex ..< endIndex])
 
-                        HStack(spacing: 12) {
+                        HStack(spacing: badgeStyle.iconSpacing) {
                             ForEach(rowApps, id: \.bundleIdentifier) { app in
                                 let isHighlighted = app.assignedNumber == highlightedNumber
                                 AppSwitcherItem(app: app, isHighlighted: isHighlighted, badgeStyle: badgeStyle, iconSize: iconSize)
@@ -150,7 +150,7 @@ class AppSwitcherWindow: NSPanel {
 
         let padding: CGFloat = 20
         let baseIconSize: CGFloat = 64
-        let spacing: CGFloat = 12
+        let spacing: CGFloat = self.badgeStyle.iconSpacing
 
         let itemsPerRow: Int
         let rowCount: Int

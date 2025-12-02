@@ -30,7 +30,12 @@ final class SettingsWindowManager {
         // Activate the app and bring window to front
         NSApp.activate(ignoringOtherApps: true)
         controller?.show()
-        controller?.window?.makeKeyAndOrderFront(nil)
+
+        // Use orderFrontRegardless for more reliable window ordering
+        if let window = controller?.window {
+            window.orderFrontRegardless()
+            window.makeKey()
+        }
     }
 
     private func makeController(preferencesManager: PreferencesManager, applicationMonitor: ApplicationMonitor, statisticsManager: StatisticsManager) -> SettingsWindowController {

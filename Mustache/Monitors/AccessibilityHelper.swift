@@ -2,20 +2,23 @@
 //  AccessibilityHelper.swift
 //  Mustache
 //
-//  Numbered App Switcher - Accessibility API Helper
-//
 
 import AppKit
 import ApplicationServices
 import Foundation
+import os.log
 
 class AccessibilityHelper {
+    private static let logger = Logger.make(category: .accessibility)
     static func checkPermissionStatus() -> PermissionStatus {
         let trusted = AXIsProcessTrusted()
-        return trusted ? .granted : .denied
+        let status: PermissionStatus = trusted ? .granted : .denied
+        logger.debug("Accessibility permission status: \(status.rawValue)")
+        return status
     }
 
     static func requestPermissions() {
+        logger.info("Requesting accessibility permissions")
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }

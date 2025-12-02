@@ -16,6 +16,7 @@ struct BadgeStyle: Codable, Equatable {
     var cornerRadius: CGFloat // Kept for backward compatibility with rectangular badges
     var borderWidth: CGFloat
     var opacity: Double
+    var iconSpacing: CGFloat // Distance between icons in the overlay
 
     init(
         backgroundColor: Color = Color.black.opacity(0.75),
@@ -24,7 +25,8 @@ struct BadgeStyle: Codable, Equatable {
         padding: CGFloat = 5,
         cornerRadius: CGFloat = 8,
         borderWidth: CGFloat = 2,
-        opacity: Double = 1.0
+        opacity: Double = 1.0,
+        iconSpacing: CGFloat = 12
     ) {
         self.backgroundColor = CodableColor(color: backgroundColor)
         self.textColor = CodableColor(color: textColor)
@@ -33,6 +35,7 @@ struct BadgeStyle: Codable, Equatable {
         self.cornerRadius = cornerRadius
         self.borderWidth = borderWidth
         self.opacity = opacity
+        self.iconSpacing = iconSpacing
     }
 }
 

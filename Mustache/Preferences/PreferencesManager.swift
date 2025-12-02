@@ -15,7 +15,7 @@ class PreferencesManager: ObservableObject {
     @Published var preferences: AppSwitcherPreferences
 
     private let preferencesKey = "com.Mustache.preferences"
-    private static let logger = Logger(subsystem: "com.mustache.app", category: "PreferencesManager")
+    private static let logger = Logger.make(category: .preferences)
 
     init() {
         var loadedPreferences = Self.loadPreferencesFromDisk() ?? .defaults
@@ -23,8 +23,11 @@ class PreferencesManager: ObservableObject {
         preferences = loadedPreferences
 
         if Self.loadPreferencesFromDisk()?.maxItemsPerRow != nil {
+            Self.logger.info("Migrating legacy settings")
             savePreferences()
         }
+
+        Self.logger.info("Preferences manager initialized")
     }
 
     func loadPreferences() {
@@ -55,9 +58,11 @@ class PreferencesManager: ObservableObject {
 
         UserDefaults.standard.set(data, forKey: preferencesKey)
         UserDefaults.standard.synchronize()
+        Self.logger.debug("Preferences saved successfully")
     }
 
     func resetToDefaults() {
+        Self.logger.info("Resetting preferences to defaults")
         preferences = .defaults
         savePreferences()
     }
@@ -81,5 +86,60 @@ class PreferencesManager: ObservableObject {
     func updateBadgeStyle(_ style: BadgeStyle) {
         preferences.badgeStyle = style
         savePreferences()
+    }
+
+    // MARK: - Export/Import
+
+    func exportSettings() -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        return try? encoder.encode(preferences)
+    }
+
+    func importSettings(from data: Data) -> Bool {
+        let decoder = JSONDecoder()
+        guard let imported = try? decoder.decode(AppSwitcherPreferences.self, from: data) else {
+            Self.logger.error("Failed to decode imported settings")
+            return false
+        }
+
+        preferences = imported
+        savePreferences()
+
+        // Apply imported settings immediately
+        LaunchAtLogin.isEnabled = imported.launchAtLogin
+
+        // Notify all observers to refresh
+        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
+        NotificationCenter.default.post(name: .menuBarIconVisibilityChanged, object: nil)
+
+        Self.logger.info("Successfully imported settings")
+        return true
+    }
+
+    func exportSettingsToFile(url: URL) -> Bool {
+        guard let data = exportSettings() else {
+            Self.logger.error("Failed to export settings")
+            return false
+        }
+
+        do {
+            try data.write(to: url)
+            Self.logger.info("Settings exported to \(url.path)")
+            return true
+        } catch {
+            Self.logger.error("Failed to write settings to file: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func importSettingsFromFile(url: URL) -> Bool {
+        do {
+            let data = try Data(contentsOf: url)
+            return importSettings(from: data)
+        } catch {
+            Self.logger.error("Failed to read settings from file: \(error.localizedDescription)")
+            return false
+        }
     }
 }

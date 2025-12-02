@@ -12,11 +12,114 @@ struct SizeConfigurationView: View {
 
     var body: some View {
         Form {
-            Section(header: Text("Badge Size")) {
+            Section(header: Text("Overlay Layout")) {
+                Picker("Layout Mode:", selection: Binding(
+                    get: { preferencesManager.preferences.layoutMode },
+                    set: { newValue in
+                        preferencesManager.preferences.layoutMode = newValue
+                        // Update maxTrackedApplications based on mode
+                        if newValue == .grid {
+                            preferencesManager.preferences.maxTrackedApplications = preferencesManager.preferences.gridRows * preferencesManager.preferences.gridColumns
+                        }
+                        preferencesManager.savePreferences()
+                        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
+                    }
+                )) {
+                    ForEach(LayoutMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+
+                if preferencesManager.preferences.layoutMode == .dynamic {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Apps arrange automatically row by row based on available screen width.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack {
+                            Text("Maximum tracked apps: \(preferencesManager.preferences.maxTrackedApplications)")
+                            Slider(
+                                value: Binding(
+                                    get: { Double(preferencesManager.preferences.maxTrackedApplications) },
+                                    set: { newValue in
+                                        preferencesManager.preferences.maxTrackedApplications = Int(newValue)
+                                        preferencesManager.savePreferences()
+                                        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
+                                    }
+                                ),
+                                in: 1 ... 47,
+                                step: 1
+                            )
+                            Spacer()
+                        }
+
+                        Text("Full keyboard: 1234567890-= qwertyuiop[] asdfghjkl;' zxcvbnm,./ `\\ (47 keys)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Apps fill a grid with specified dimensions.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack {
+                            Text("Rows: \(preferencesManager.preferences.gridRows)")
+                                .frame(width: 80, alignment: .leading)
+                            Slider(
+                                value: Binding(
+                                    get: { Double(preferencesManager.preferences.gridRows) },
+                                    set: { newValue in
+                                        preferencesManager.preferences.gridRows = Int(newValue)
+                                        preferencesManager.preferences.maxTrackedApplications = preferencesManager.preferences.gridRows * preferencesManager.preferences.gridColumns
+                                        preferencesManager.savePreferences()
+                                        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
+                                    }
+                                ),
+                                in: 1 ... 10,
+                                step: 1
+                            )
+                        }
+
+                        HStack {
+                            Text("Columns: \(preferencesManager.preferences.gridColumns)")
+                                .frame(width: 80, alignment: .leading)
+                            Slider(
+                                value: Binding(
+                                    get: { Double(preferencesManager.preferences.gridColumns) },
+                                    set: { newValue in
+                                        preferencesManager.preferences.gridColumns = Int(newValue)
+                                        preferencesManager.preferences.maxTrackedApplications = preferencesManager.preferences.gridRows * preferencesManager.preferences.gridColumns
+                                        preferencesManager.savePreferences()
+                                        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
+                                    }
+                                ),
+                                in: 1 ... 18,
+                                step: 1
+                            )
+                        }
+
+                        Text("Maximum tracked apps: \(preferencesManager.preferences.gridRows * preferencesManager.preferences.gridColumns) (grid capacity)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            Section(header: HStack {
+                Text("Badge Size")
+                Spacer()
+                Button("Reset All") {
+                    resetToDefaults()
+                }
+                .buttonStyle(.borderless)
+                .help("Reset all size settings to defaults")
+            }) {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack(spacing: 20) {
                         Text("Font Size: \(Int(preferencesManager.preferences.badgeStyle.fontSize))")
-                            .frame(width: 100, alignment: .leading)
+                            .frame(width: 120, alignment: .leading)
                         Slider(
                             value: Binding(
                                 get: { Double(preferencesManager.preferences.badgeStyle.fontSize) },
@@ -32,7 +135,7 @@ struct SizeConfigurationView: View {
 
                     HStack(spacing: 20) {
                         Text("Padding: \(Int(preferencesManager.preferences.badgeStyle.padding))")
-                            .frame(width: 100, alignment: .leading)
+                            .frame(width: 120, alignment: .leading)
                         Slider(
                             value: Binding(
                                 get: { Double(preferencesManager.preferences.badgeStyle.padding) },
@@ -48,7 +151,7 @@ struct SizeConfigurationView: View {
 
                     HStack(spacing: 20) {
                         Text("Border Width: \(Int(preferencesManager.preferences.badgeStyle.borderWidth))")
-                            .frame(width: 100, alignment: .leading)
+                            .frame(width: 120, alignment: .leading)
                         Slider(
                             value: Binding(
                                 get: { Double(preferencesManager.preferences.badgeStyle.borderWidth) },
@@ -64,7 +167,7 @@ struct SizeConfigurationView: View {
 
                     HStack(spacing: 20) {
                         Text("Opacity: \(String(format: "%.0f%%", preferencesManager.preferences.badgeStyle.opacity * 100))")
-                            .frame(width: 100, alignment: .leading)
+                            .frame(width: 120, alignment: .leading)
                         Slider(
                             value: Binding(
                                 get: { preferencesManager.preferences.badgeStyle.opacity },
@@ -75,6 +178,23 @@ struct SizeConfigurationView: View {
                             ),
                             in: 0.5 ... 1.0,
                             step: 0.05
+                        )
+                    }
+
+                    HStack(spacing: 20) {
+                        Text("Icon Spacing: \(Int(preferencesManager.preferences.badgeStyle.iconSpacing))")
+                            .frame(width: 120, alignment: .leading)
+                        Slider(
+                            value: Binding(
+                                get: { Double(preferencesManager.preferences.badgeStyle.iconSpacing) },
+                                set: { newValue in
+                                    preferencesManager.preferences.badgeStyle.iconSpacing = CGFloat(newValue)
+                                    preferencesManager.savePreferences()
+                                    NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
+                                }
+                            ),
+                            in: 4 ... 50,
+                            step: 2
                         )
                     }
                 }
@@ -127,7 +247,7 @@ struct SizeConfigurationView: View {
 
                     VStack(spacing: 16) {
                         // Realistic preview with app icon (like the actual app switcher)
-                        HStack(spacing: 12) {
+                        HStack(spacing: preferencesManager.preferences.badgeStyle.iconSpacing) {
                             // Simulate app icon with badge
                             ZStack(alignment: .topLeading) {
                                 // Use Calendar app icon as example
@@ -188,5 +308,11 @@ struct SizeConfigurationView: View {
         }
         .padding()
         .formStyle(.grouped)
+    }
+
+    private func resetToDefaults() {
+        preferencesManager.preferences.badgeStyle = BadgeStyle()
+        preferencesManager.savePreferences()
+        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
     }
 }

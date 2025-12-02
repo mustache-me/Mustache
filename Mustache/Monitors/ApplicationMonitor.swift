@@ -10,16 +10,15 @@ import Combine
 import Foundation
 import os.log
 
-/// Delegate protocol for application monitor events
 protocol ApplicationMonitorDelegate: AnyObject {
     func applicationsDidUpdate(_ applications: [TrackedApplication])
     func applicationDidActivate(_ application: TrackedApplication)
 }
 
-/// Monitors running applications and assigns numbers to them
 @MainActor
 class ApplicationMonitor: ObservableObject {
     @Published var trackedApplications: [TrackedApplication] = []
+    @Published var isLoadingApplications: Bool = false
 
     weak var delegate: ApplicationMonitorDelegate?
     private var isMonitoring = false
@@ -30,30 +29,33 @@ class ApplicationMonitor: ObservableObject {
     var showPinnedAppsFirst: Bool = true
 
     private var iconCache: [String: NSImage] = [:]
-    private struct AppMetadata {
-        let name: String
-        let url: URL
-    }
-
-    private var metadataCache: [String: AppMetadata] = [:]
+    private var metadataCache: [String: (name: String, url: URL)] = [:]
     private var dockAppsCache: [String]?
     private var dockAppsCacheTime: Date?
     private let dockAppsCacheDuration: TimeInterval = 5.0
 
-    private static let logger = Logger(subsystem: "com.mustache.app", category: "ApplicationMonitor")
+    private static let logger = Logger.make(category: .monitor)
 
     init() {}
 
     func startMonitoring() {
-        guard !isMonitoring else { return }
+        guard !isMonitoring else {
+            Self.logger.debug("Already monitoring, skipping start")
+            return
+        }
         isMonitoring = true
+        Self.logger.info("Started monitoring applications")
         refreshApplicationList()
     }
 
     func stopMonitoring() {
-        guard isMonitoring else { return }
+        guard isMonitoring else {
+            Self.logger.debug("Not monitoring, skipping stop")
+            return
+        }
         isMonitoring = false
         stopWindowPositionPolling()
+        Self.logger.info("Stopped monitoring applications")
     }
 
     func refreshApplicationList() {
@@ -66,31 +68,16 @@ class ApplicationMonitor: ObservableObject {
     }
 
     private func refreshRunningApplications() {
-        let runningApps = NSWorkspace.shared.runningApplications
+        isLoadingApplications = true
+        Self.logger.debug("Refreshing running applications")
 
-        let filteredApps = runningApps.filter { app in
-            guard app.activationPolicy == .regular else { return false }
-            guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
-            guard !app.isTerminated else { return false }
-            return true
-        }
+        let filteredApps = ApplicationUtilities.getRunningApplications()
+        Self.logger.info("Found \(filteredApps.count) running applications")
 
-        var tracked: [TrackedApplication] = []
-
-        for app in filteredApps {
-            let trackedApp = TrackedApplication(
-                id: app.processIdentifier,
-                bundleIdentifier: app.bundleIdentifier ?? "unknown",
-                name: app.localizedName ?? "Unknown",
-                icon: getCachedIcon(for: app),
-                assignedNumber: nil,
-                assignedKey: nil,
-                isActive: app.isActive,
-                windowFrame: nil,
-                isRunning: true
-            )
-
-            tracked.append(trackedApp)
+        var tracked = filteredApps.map { app in
+            var trackedApp = ApplicationUtilities.createTrackedApplication(from: app)
+            trackedApp.icon = getCachedIcon(for: app)
+            return trackedApp
         }
 
         tracked = sortAndTruncateApplications(tracked)
@@ -98,103 +85,75 @@ class ApplicationMonitor: ObservableObject {
 
         trackedApplications = tracked
         delegate?.applicationsDidUpdate(tracked)
+        isLoadingApplications = false
     }
 
     private func refreshDockApplications() {
+        isLoadingApplications = true
+        Self.logger.debug("Refreshing dock applications")
+
         let persistentDockApps = getDockApplications()
-        var tracked: [TrackedApplication] = []
+        var dockOrderedApps: [TrackedApplication] = []
         var processedBundleIDs = Set<String>()
 
-        let finderBundleID = "com.apple.finder"
-        if let finderApp = NSRunningApplication.runningApplications(withBundleIdentifier: finderBundleID).first,
-           !finderApp.isTerminated
-        {
-            processedBundleIDs.insert(finderBundleID)
-            let trackedApp = TrackedApplication(
-                id: finderApp.processIdentifier,
-                bundleIdentifier: finderBundleID,
-                name: finderApp.localizedName ?? "Finder",
-                icon: getCachedIcon(for: finderApp),
-                assignedNumber: nil,
-                assignedKey: nil,
-                isActive: finderApp.isActive,
-                windowFrame: nil,
-                isRunning: true
-            )
-            tracked.append(trackedApp)
-        }
-
-        for bundleID in persistentDockApps {
-            guard !processedBundleIDs.contains(bundleID) else { continue }
-            processedBundleIDs.insert(bundleID)
-
-            let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
-
-            if let runningApp = runningApps.first,
-               runningApp.processIdentifier != ProcessInfo.processInfo.processIdentifier,
-               !runningApp.isTerminated
+        Task { @MainActor in
+            let finderBundleID = "com.apple.finder"
+            if let finderApp = NSRunningApplication.runningApplications(withBundleIdentifier: finderBundleID).first,
+               !finderApp.isTerminated
             {
-                let trackedApp = TrackedApplication(
-                    id: runningApp.processIdentifier,
-                    bundleIdentifier: bundleID,
-                    name: runningApp.localizedName ?? "Unknown",
-                    icon: getCachedIcon(for: runningApp),
-                    assignedNumber: nil,
-                    assignedKey: nil,
-                    isActive: runningApp.isActive,
-                    windowFrame: nil,
-                    isRunning: true
-                )
-                tracked.append(trackedApp)
-            } else {
-                if let metadata = getCachedMetadata(for: bundleID) {
-                    let appIcon = getCachedIcon(for: bundleID, appURL: metadata.url)
-                    let trackedApp = TrackedApplication(
-                        id: 0,
-                        bundleIdentifier: bundleID,
-                        name: metadata.name,
-                        icon: appIcon,
-                        assignedNumber: nil,
-                        assignedKey: nil,
-                        isActive: false,
-                        windowFrame: nil,
-                        isRunning: false
-                    )
-                    tracked.append(trackedApp)
-                }
+                processedBundleIDs.insert(finderBundleID)
+                var trackedApp = ApplicationUtilities.createTrackedApplication(from: finderApp)
+                trackedApp.icon = getCachedIcon(for: finderApp)
+                dockOrderedApps.append(trackedApp)
+
+                let withShortcuts = assignShortcuts(to: dockOrderedApps)
+                trackedApplications = withShortcuts
+                delegate?.applicationsDidUpdate(withShortcuts)
             }
+
+            for bundleID in persistentDockApps {
+                guard !processedBundleIDs.contains(bundleID) else { continue }
+                processedBundleIDs.insert(bundleID)
+
+                let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+
+                if let runningApp = runningApps.first,
+                   runningApp.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+                   !runningApp.isTerminated
+                {
+                    var trackedApp = ApplicationUtilities.createTrackedApplication(from: runningApp)
+                    trackedApp.icon = getCachedIcon(for: runningApp)
+                    dockOrderedApps.append(trackedApp)
+                } else if let metadata = getCachedMetadata(for: bundleID) {
+                    var trackedApp = ApplicationUtilities.createTrackedApplication(bundleIdentifier: bundleID, metadata: metadata)
+                    trackedApp.icon = getCachedIcon(for: bundleID, appURL: metadata.url)
+                    dockOrderedApps.append(trackedApp)
+                }
+
+                let withShortcuts = assignShortcuts(to: dockOrderedApps)
+                trackedApplications = withShortcuts
+                delegate?.applicationsDidUpdate(withShortcuts)
+            }
+
+            let filteredRunningApps = ApplicationUtilities.getRunningApplications().filter { app in
+                guard let bundleID = app.bundleIdentifier else { return false }
+                return !processedBundleIDs.contains(bundleID)
+            }
+
+            for app in filteredRunningApps {
+                var trackedApp = ApplicationUtilities.createTrackedApplication(from: app)
+                trackedApp.icon = getCachedIcon(for: app)
+                dockOrderedApps.append(trackedApp)
+            }
+
+            var finalTracked = sortAndTruncateApplications(dockOrderedApps)
+            finalTracked = assignShortcuts(to: finalTracked)
+
+            trackedApplications = finalTracked
+            delegate?.applicationsDidUpdate(finalTracked)
+            isLoadingApplications = false
+            Self.logger.info("Loaded \(finalTracked.count) dock applications")
         }
-
-        let runningApps = NSWorkspace.shared.runningApplications
-        let filteredRunningApps = runningApps.filter { app in
-            guard app.activationPolicy == .regular else { return false }
-            guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
-            guard !app.isTerminated else { return false }
-            guard let bundleID = app.bundleIdentifier else { return false }
-            return !processedBundleIDs.contains(bundleID)
-        }
-
-        for app in filteredRunningApps {
-            let bundleID = app.bundleIdentifier ?? "unknown"
-            let trackedApp = TrackedApplication(
-                id: app.processIdentifier,
-                bundleIdentifier: bundleID,
-                name: app.localizedName ?? "Unknown",
-                icon: getCachedIcon(for: app),
-                assignedNumber: nil,
-                assignedKey: nil,
-                isActive: app.isActive,
-                windowFrame: nil,
-                isRunning: true
-            )
-            tracked.append(trackedApp)
-        }
-
-        tracked = sortAndTruncateApplications(tracked)
-        tracked = assignShortcuts(to: tracked)
-
-        trackedApplications = tracked
-        delegate?.applicationsDidUpdate(tracked)
     }
 
     private func getCachedIcon(for bundleID: String, appURL: URL) -> NSImage {
@@ -219,18 +178,15 @@ class ApplicationMonitor: ObservableObject {
         return icon
     }
 
-    private func getCachedMetadata(for bundleID: String) -> AppMetadata? {
+    private func getCachedMetadata(for bundleID: String) -> (name: String, url: URL)? {
         if let cached = metadataCache[bundleID] {
             return cached
         }
 
-        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
-            Self.logger.warning("Could not find app URL for bundle ID: \(bundleID)")
+        guard let metadata = ApplicationUtilities.getApplicationMetadata(bundleIdentifier: bundleID) else {
             return nil
         }
 
-        let appName = FileManager.default.displayName(atPath: appURL.path)
-        let metadata = AppMetadata(name: appName, url: appURL)
         metadataCache[bundleID] = metadata
         return metadata
     }
@@ -240,6 +196,7 @@ class ApplicationMonitor: ObservableObject {
         metadataCache.removeAll()
         dockAppsCache = nil
         dockAppsCacheTime = nil
+        Self.logger.info("Cleared all application caches")
     }
 
     private func getDockApplications() -> [String] {
@@ -247,29 +204,11 @@ class ApplicationMonitor: ObservableObject {
            let cacheTime = dockAppsCacheTime,
            Date().timeIntervalSince(cacheTime) < dockAppsCacheDuration
         {
+            Self.logger.debug("Using cached dock applications")
             return cached
         }
 
-        guard let dockPlist = UserDefaults.standard.persistentDomain(forName: "com.apple.dock"),
-              let persistentApps = dockPlist["persistent-apps"] as? [[String: Any]]
-        else {
-            Self.logger.error("Failed to read dock preferences")
-            return []
-        }
-
-        var bundleIDs: [String] = []
-        var seenBundleIDs = Set<String>()
-
-        for app in persistentApps {
-            if let tileData = app["tile-data"] as? [String: Any],
-               let bundleID = tileData["bundle-identifier"] as? String,
-               !seenBundleIDs.contains(bundleID)
-            {
-                bundleIDs.append(bundleID)
-                seenBundleIDs.insert(bundleID)
-            }
-        }
-
+        let bundleIDs = ApplicationUtilities.getDockApplicationBundleIDs()
         dockAppsCache = bundleIDs
         dockAppsCacheTime = Date()
 

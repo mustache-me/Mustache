@@ -11,167 +11,70 @@ import SwiftUI
 
 struct GeneralPreferencesView: View {
     @ObservedObject var preferencesManager: PreferencesManager
+    @State private var showingExportPanel = false
+    @State private var showingImportPanel = false
+    @State private var showingImportAlert = false
+    @State private var importSuccess = false
 
     var body: some View {
         Form {
-            Section(header: Text("Keyboard Shortcut")) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Shortcut:")
-                            .font(.headline)
-
-                        KeyboardShortcuts.Recorder("", name: .toggleAppSwitcher)
-                            .frame(maxWidth: 200)
-                    }
-
-                    Text("Press the shortcut, then use any visible keyboard character to switch to applications.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.vertical, 4)
-            }
-
-            Section(header: Text("Application Source")) {
-                Picker("Mode:", selection: Binding(
-                    get: { preferencesManager.preferences.applicationSourceMode },
-                    set: { newValue in
-                        preferencesManager.preferences.applicationSourceMode = newValue
-                        preferencesManager.savePreferences()
-                        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
-                    }
-                )) {
-                    ForEach(ApplicationSourceMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-
-                if preferencesManager.preferences.applicationSourceMode == .runningApplications {
-                    Text("Track all running applications with visible windows.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("Track applications from your Dock.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Section(header: Text("Overlay Layout")) {
-                Picker("Layout Mode:", selection: Binding(
-                    get: { preferencesManager.preferences.layoutMode },
-                    set: { newValue in
-                        preferencesManager.preferences.layoutMode = newValue
-                        // Update maxTrackedApplications based on mode
-                        if newValue == .grid {
-                            preferencesManager.preferences.maxTrackedApplications = preferencesManager.preferences.gridRows * preferencesManager.preferences.gridColumns
-                        }
-                        preferencesManager.savePreferences()
-                        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
-                    }
-                )) {
-                    ForEach(LayoutMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-
-                if preferencesManager.preferences.layoutMode == .dynamic {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Apps arrange automatically row by row based on available screen width.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
+            Section(header: Text("General")) {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Keyboard Shortcut
+                    VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("Maximum tracked apps: \(preferencesManager.preferences.maxTrackedApplications)")
-                            Slider(
-                                value: Binding(
-                                    get: { Double(preferencesManager.preferences.maxTrackedApplications) },
-                                    set: { newValue in
-                                        preferencesManager.preferences.maxTrackedApplications = Int(newValue)
-                                        preferencesManager.savePreferences()
-                                        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
-                                    }
-                                ),
-                                in: 1 ... 47,
-                                step: 1
-                            )
-                            Spacer()
+                            Text("Shortcut:")
+                                .font(.headline)
+
+                            KeyboardShortcuts.Recorder("", name: .toggleAppSwitcher)
+                                .frame(maxWidth: 200)
                         }
 
-                        Text("Full keyboard: 1234567890-= qwertyuiop[] asdfghjkl;' zxcvbnm,./ `\\ (47 keys)")
+                        Text("Press the shortcut, then use any visible keyboard character to switch to applications.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                } else {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Apps fill a grid with specified dimensions.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
 
-                        HStack {
-                            Text("Rows: \(preferencesManager.preferences.gridRows)")
-                                .frame(width: 80, alignment: .leading)
-                            Slider(
-                                value: Binding(
-                                    get: { Double(preferencesManager.preferences.gridRows) },
-                                    set: { newValue in
-                                        preferencesManager.preferences.gridRows = Int(newValue)
-                                        preferencesManager.preferences.maxTrackedApplications = preferencesManager.preferences.gridRows * preferencesManager.preferences.gridColumns
-                                        preferencesManager.savePreferences()
-                                        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
-                                    }
-                                ),
-                                in: 1 ... 10,
-                                step: 1
-                            )
+                    Divider()
+
+                    // Launch at Login
+                    LaunchAtLogin.Toggle()
+
+                    // Show menu bar icon
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Show menu bar icon", isOn: Binding(
+                            get: { preferencesManager.preferences.showMenuBarIcon },
+                            set: { newValue in
+                                preferencesManager.preferences.showMenuBarIcon = newValue
+                                preferencesManager.savePreferences()
+                                NotificationCenter.default.post(name: .menuBarIconVisibilityChanged, object: nil)
+                            }
+                        ))
+
+                        if !preferencesManager.preferences.showMenuBarIcon {
+                            Text("Tip: Use Spotlight (⌘Space) to search for 'Mustache' to open settings when the menu bar icon is hidden.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 20)
                         }
-
-                        HStack {
-                            Text("Columns: \(preferencesManager.preferences.gridColumns)")
-                                .frame(width: 80, alignment: .leading)
-                            Slider(
-                                value: Binding(
-                                    get: { Double(preferencesManager.preferences.gridColumns) },
-                                    set: { newValue in
-                                        preferencesManager.preferences.gridColumns = Int(newValue)
-                                        preferencesManager.preferences.maxTrackedApplications = preferencesManager.preferences.gridRows * preferencesManager.preferences.gridColumns
-                                        preferencesManager.savePreferences()
-                                        NotificationCenter.default.post(name: .applicationSourceModeChanged, object: nil)
-                                    }
-                                ),
-                                in: 1 ... 18,
-                                step: 1
-                            )
-                        }
-
-                        Text("Maximum tracked apps: \(preferencesManager.preferences.gridRows * preferencesManager.preferences.gridColumns) (grid capacity)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
                     }
                 }
             }
 
-            Section(header: Text("Appearance")) {
-                Toggle("Show menu bar icon", isOn: Binding(
-                    get: { preferencesManager.preferences.showMenuBarIcon },
-                    set: { newValue in
-                        preferencesManager.preferences.showMenuBarIcon = newValue
-                        preferencesManager.savePreferences()
-                        NotificationCenter.default.post(name: .menuBarIconVisibilityChanged, object: nil)
+            Section(header: Text("Backup & Restore")) {
+                HStack(spacing: 12) {
+                    Button("Export Settings...") {
+                        showingExportPanel = true
                     }
-                ))
 
-                if !preferencesManager.preferences.showMenuBarIcon {
-                    Text("Tip: Use Spotlight (⌘Space) to search for 'Mustache' to open settings when the menu bar icon is hidden.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.top, 4)
+                    Button("Import Settings...") {
+                        showingImportPanel = true
+                    }
                 }
-            }
 
-            Section(header: Text("Startup")) {
-                LaunchAtLogin.Toggle()
+                Text("Export your settings to backup or transfer to another Mac. Import to restore settings.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Section {
@@ -182,5 +85,78 @@ struct GeneralPreferencesView: View {
         }
         .padding()
         .formStyle(.grouped)
+        .fileExporter(
+            isPresented: $showingExportPanel,
+            document: SettingsDocument(data: preferencesManager.exportSettings()),
+            contentType: .json,
+            defaultFilename: "Mustache-Settings-\(dateString()).json"
+        ) { result in
+            switch result {
+            case .success:
+                break
+            case let .failure(error):
+                print("Export failed: \(error.localizedDescription)")
+            }
+        }
+        .fileImporter(
+            isPresented: $showingImportPanel,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case let .success(urls):
+                guard let url = urls.first else { return }
+                let gotAccess = url.startAccessingSecurityScopedResource()
+                defer {
+                    if gotAccess {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
+
+                importSuccess = preferencesManager.importSettingsFromFile(url: url)
+                showingImportAlert = true
+
+            case let .failure(error):
+                print("Import failed: \(error.localizedDescription)")
+                importSuccess = false
+                showingImportAlert = true
+            }
+        }
+        .alert(importSuccess ? "Settings Imported" : "Import Failed", isPresented: $showingImportAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(importSuccess ? "Your settings have been successfully imported." : "Failed to import settings. Please check the file format.")
+        }
+    }
+
+    private func dateString() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
+}
+
+// MARK: - Settings Document
+
+import UniformTypeIdentifiers
+
+struct SettingsDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+
+    var data: Data?
+
+    init(data: Data?) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents
+    }
+
+    func fileWrapper(configuration _: WriteConfiguration) throws -> FileWrapper {
+        guard let data else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        return FileWrapper(regularFileWithContents: data)
     }
 }

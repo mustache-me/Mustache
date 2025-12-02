@@ -38,7 +38,7 @@ class ApplicationCoordinator: ObservableObject {
     private var lastAppListRefresh: Date?
     private let appListRefreshInterval: TimeInterval = 2.0
 
-    private static let logger = Logger(subsystem: "com.mustache.app", category: "ApplicationCoordinator")
+    private static let logger = Logger.make(category: .coordinator)
 
     init() {
         preferencesManager = PreferencesManager()
@@ -74,14 +74,17 @@ class ApplicationCoordinator: ObservableObject {
     }
 
     func start() {
+        Self.logger.info("Starting application coordinator")
         permissionStatus = checkPermissions()
 
         guard permissionStatus == .granted else {
+            Self.logger.warning("Accessibility permissions not granted")
             disableFunctionality()
             startPermissionMonitoring()
             return
         }
 
+        Self.logger.info("Accessibility permissions granted, enabling functionality")
         enableFunctionality()
         setupNotificationObservers()
     }
@@ -104,7 +107,12 @@ class ApplicationCoordinator: ObservableObject {
     }
 
     private func enableFunctionality(showRestartPrompt: Bool = false) {
-        guard !isFunctionalityEnabled else { return }
+        guard !isFunctionalityEnabled else {
+            Self.logger.debug("Functionality already enabled")
+            return
+        }
+
+        Self.logger.info("Enabling app switcher functionality")
 
         applicationMonitor.applicationSourceMode = preferencesManager.preferences.applicationSourceMode
         applicationMonitor.maxTrackedApplications = preferencesManager.preferences.maxTrackedApplications
@@ -151,7 +159,12 @@ class ApplicationCoordinator: ObservableObject {
     }
 
     private func disableFunctionality() {
-        guard isFunctionalityEnabled else { return }
+        guard isFunctionalityEnabled else {
+            Self.logger.debug("Functionality already disabled")
+            return
+        }
+
+        Self.logger.info("Disabling app switcher functionality")
 
         applicationMonitor.stopMonitoring()
         removeKeyboardShortcuts()
@@ -162,6 +175,7 @@ class ApplicationCoordinator: ObservableObject {
     }
 
     func stop() {
+        Self.logger.info("Stopping application coordinator")
         stopPermissionMonitoring()
         disableFunctionality()
         NotificationCenter.default.removeObserver(self)
