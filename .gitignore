@@ -94,5 +94,4 @@ iOSInjectionProject/
 # macOS
 .DS_Store
 
-.kiro/*
 .vscode/*
